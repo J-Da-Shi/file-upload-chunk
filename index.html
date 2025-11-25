@@ -1,135 +1,103 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文件上传</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>多核并行文件上传</title>
 </head>
-
 <body>
-    <input id="upload" type="file">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.7.2/axios.min.js"></script>
-    <script>
-        var upload = document.getElementById('upload');
-        upload.addEventListener('change', async function (event) {
-            var file = event.target.files[0];
-            console.log(file);
+  <input id="upload" type="file" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.7.2/axios.min.js"></script>
+  <script>
+    const upload = document.getElementById('upload');
+    upload.addEventListener('change', async function (event) {
+      const file = event.target.files[0];
+      if (!file) return;
 
-            // 文件分片
-            const chunks = createChunks(file, 1024 * 1024);
-            console.log(chunks);
-            // 文件命名hash: 后端接收的时候，可能会出现多个用户同时上传的情况，那么你上传的时候，会出现分片交叉的情况，那么后端要怎么进行合并，所以要给文件命名hash
-            const res = await hash(chunks);
-            console.log(res);
-            // 发送分片
-            uploadChunks(chunks, res, file.name);
-        });
+      const CHUNK_SIZE = 1024 * 1024; // 1MB
+      const chunks = createChunks(file, CHUNK_SIZE);
 
-        // 创建分片
-        function createChunks(file, chunkSize) {
-            const result = [];
-            for (let i = 0; i < file.size; i += chunkSize) {
-                // 每一片，slice是文件的原型上自带的方法，不会影响原文件
-                const chunk = file.slice(i, i + chunkSize);
-                result.push(chunk);
-            }
-            return result;
+      // 使用 FileReader 将所有分片预读为 ArrayBuffer（便于 transfer）
+      const buffers = await Promise.all(
+        chunks.map(chunk => new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result); // ArrayBuffer
+          reader.readAsArrayBuffer(chunk);
+        }))
+      );
+
+      // 创建 Worker 池
+      const numWorkers = Math.min(navigator.hardwareConcurrency || 4, chunks.length);
+      const workers = [];
+      const hashResults = new Array(chunks.length);
+      let completed = 0;
+      let nextIndex = 0;
+
+      // 任务完成回调
+      const onChunkDone = ({ index, hash }) => {
+        hashResults[index] = hash;
+        completed++;
+
+        if (completed === chunks.length) {
+          const finalHash = SparkMD5.hash(hashResults.join(''));
+          console.log('✅ Final file hash:', finalHash);
+          uploadChunks(chunks, finalHash, file.name);
+
+          // 终止所有 Worker
+          workers.forEach(w => w.terminate());
         }
+      };
 
-        // 根据文件内容创建hash值
-        // function hash(chunks) {
-        //     const spark = new SparkMD5(); // md5 会根据文件内容进行转化
+      // 创建 Worker 并分配任务
+      for (let i = 0; i < numWorkers; i++) {
+        const worker = new Worker('worker-buffer.js'); // 注意：新 worker 文件名
+        workers.push(worker);
 
-        //     // 通过 递归的形式 处理每一个片段
-        //     function _read(index) {
-        //         // 容错处理，如果是最后一个，结束递归
-        //         if(index >= chunks.length) {
-        //             spark.end();
-        //             return;
-        //         }
+        const assignNext = () => {
+          if (nextIndex >= buffers.length) return;
+          const index = nextIndex++;
+          // transfer ArrayBuffer（零拷贝！）
+          worker.postMessage({ index, buffer: buffers[index] }, [buffers[index]]);
+        };
 
-        //         // 获取其中的一个片段
-        //         const blob = chunks[index];
-        //         // 创建一个FileReader对象
-        //         const reader = new FileReader();
-        //         reader.onload = function(e) {
-        //             // 拿到当前内容
-        //             const bytes = e.target.result;
-        //             // 添加进spark
-        //             spark.append(bytes);
-        //             // 递归读取下一个片段
-        //             _read(index + 1);
-        //         }
-        //         // FileReader 接口的 readAsArrayBuffer() 方法用于开始读取指定 Blob 或 File 的内容。当读取操作完成时，readyState 属性变为 DONE，并触发 loadend 事件。此时，result 属性包含一个表示文件数据的 ArrayBuffer。
-        //         reader.readAsArrayBuffer(blob);
-        //     }
+        worker.onmessage = (e) => {
+          const { success, index, hash, error } = e.data;
+          if (!success) {
+            console.error(`Chunk ${index} failed:`, error);
+            workers.forEach(w => w.terminate());
+            return;
+          }
+          onChunkDone({ index, hash });
+          assignNext(); // 处理完一个，立即领下一个
+        };
 
-        //     _read(0); // 先传入第一个
-        // }
-        // 假如 spark.end 或 内部其它的方法是一个异步的，那么 同步的代码就会出现问题，但是增加了promise后，可以进行异步处理，不会阻塞同步代码
-        function hash(chunks) {
-            // 处理会出现异步的情况
-            return new Promise((resolve, reject) => {
-                const spark = new SparkMD5();
-                // 切的片段到底有几个，怎么进行hash处理
-                // 递归处理
-                function _read(index) {
-                    // 判断是否是最后一个
-                    if (index >= chunks.length) {
-                        resolve(spark.end());
-                        return;
-                    }
-                    // 获取当前其中的一个片段
-                    const blob = chunks[index];
-                    // 创建一个文件对象 FileReader
-                    const reader = new FileReader();
-                    // 监听文件读取完成事件
-                    reader.onload = function (e) {
-                        // 拿到当前内容
-                        const bytes = e.target.result;
-                        // 添加进spark
-                        spark.append(bytes);
-                        // 递归读取下一个片段
-                        _read(index + 1);
-                    }
-                    reader.readAsArrayBuffer(blob);
+        assignNext(); // 启动第一个任务
+      }
+    });
 
-                }
+    function createChunks(file, chunkSize) {
+      const result = [];
+      for (let i = 0; i < file.size; i += chunkSize) {
+        result.push(file.slice(i, i + chunkSize));
+      }
+      return result;
+    }
 
-                _read(0);
-            });
-        }
+    function uploadChunks(chunks, hash, fileName) {
+      const taskArr = [];
+      chunks.forEach((chunk, index) => {
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('hash', `${hash}-${index}`);
+        formData.append('fileName', fileName);
+        taskArr.push(axios.post('http://127.0.0.1:3000/upload', formData));
+      });
 
-        // 分片上传
-        function uploadChunks(chunks, hash, fileName) {
-            // 文件怎么传给后端
-            // 所有分片上传成功后，需要有一个通知，告诉后端已经上传完成，要有一个状态监听，来判断是否上传完成
-            const taskArr = []
-            chunks.forEach((chunk, index) => {
-                // 创建一个formData对象
-                const formData = new FormData();
-                formData.append('chunk', chunk);
-                formData.append('hash', `${hash}-${index}-${fileName}`);
-                formData.append('fileName', fileName);
-
-                const task = axios.post('http://127.0.0.1:3000/upload', formData, {
-                    headers: {
-                        'Content-Type': 'multipart/form-data'
-                    }
-                })
-                // 通过push的方式，将所有的任务添加到数组中，使用Promise.all可以拿到所有接口返回的结果
-                taskArr.push(task);
-            });
-
-            Promise.all(taskArr).then(res => {
-                // 拿到所有分片上传成功后的结果
-                console.log(res);
-            }).catch(err => {
-                console.log(err);
-            });
-        }
-    </script>
+      Promise.all(taskArr)
+        .then(res => console.log('🚀 All chunks uploaded!', res))
+        .catch(err => console.error('❌ Upload failed:', err));
+    }
+  </script>
 </body>
 </html>

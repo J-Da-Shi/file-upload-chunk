@@ -1,0 +1,1 @@
+作用：让 pnpm 自动提升常用 devDependencies 到根 node_modules，避免每个子项目重复安装。

@@ -16,7 +16,9 @@
   "main": "index.js",
   "scripts": {
     "dev:file": "pnpm --filter @monorepo-file/file dev",
-    "dev:server": "pnpm --filter @monorepo-file/server start"
+    "dev:server": "pnpm --filter @monorepo-file/server start",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix"
   },
   "workspaces": [
     "packages/*"

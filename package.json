@@ -18,7 +18,8 @@
     "dev:file": "pnpm --filter @monorepo-file/file dev",
     "dev:server": "pnpm --filter @monorepo-file/server start",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
-    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix"
+    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
+    "prepare": "husky"
   },
   "workspaces": [
     "packages/*"

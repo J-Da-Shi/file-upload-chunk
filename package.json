@@ -41,7 +41,7 @@
     "lint-staged": "^16.2.7"
   },
   "lint-staged": {
-    "src/**/*.[ts,tsx,js,jsx]": [
+    "**/*.[ts,tsx,js,jsx]": [
       "pnpm lint:fix"
     ]
   }

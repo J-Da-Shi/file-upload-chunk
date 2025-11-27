@@ -155,6 +155,43 @@ app.post('/upload', upload.single('chunk'), (req, res) => {
   }
 });
 
+// 检查文件是否已存在（用于秒传）
+app.post('/check', (req, res) => {
+  const { hash, fileName } = req.body;
+  
+  if (!hash || !fileName) {
+    return res.status(400).json({
+      code: 400,
+      message: '缺少必要参数：hash 和 fileName'
+    });
+  }
+  
+  // 提取文件hash
+  const fileHash = hash.includes('-') ? hash.split('-')[0] : hash;
+  const mergedFilePath = path.join(MERGED_DIR, `${fileHash}-${fileName}`);
+  
+  // 检查完整文件是否存在
+  if (fs.existsSync(mergedFilePath)) {
+    const stats = fs.statSync(mergedFilePath);
+    return res.status(200).json({
+      code: 200,
+      message: '文件已存在',
+      exists: true,
+      filePath: mergedFilePath,
+      fileName: fileName,
+      size: stats.size,
+      hash: fileHash
+    });
+  }
+  
+  // 文件不存在
+  res.status(200).json({
+    code: 200,
+    message: '文件不存在',
+    exists: false
+  });
+});
+
 // 验证分片接口（用于断点续传）
 app.post('/verify', (req, res) => {
   const { hash, fileName, chunkCount } = req.body;

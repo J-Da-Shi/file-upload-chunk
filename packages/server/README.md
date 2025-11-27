@@ -107,7 +107,67 @@ axios.post('http://127.0.0.1:3000/upload', formData, {
 
 ---
 
-### 2. 验证分片（断点续传）
+### 2. 检查文件是否存在（秒传）
+
+检查完整文件是否已存在，用于实现秒传功能。如果文件已存在，则无需上传，直接返回文件信息。
+
+**接口地址**: `POST /check`
+
+**请求方式**: `application/json`
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| hash | String | 是 | 文件哈希值（完整hash或fileHash） |
+| fileName | String | 是 | 文件名 |
+
+**请求示例**:
+
+```javascript
+axios.post('http://127.0.0.1:3000/check', {
+  hash: 'abc123',
+  fileName: 'test.jpg'
+});
+```
+
+**响应示例（文件已存在）**:
+
+```json
+{
+  "code": 200,
+  "message": "文件已存在",
+  "exists": true,
+  "filePath": "uploads/merged/abc123-test.jpg",
+  "fileName": "test.jpg",
+  "size": 10485760,
+  "hash": "abc123"
+}
+```
+
+**响应示例（文件不存在）**:
+
+```json
+{
+  "code": 200,
+  "message": "文件不存在",
+  "exists": false
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| exists | Boolean | 文件是否存在 |
+| filePath | String | 文件完整路径（仅当 exists 为 true 时返回） |
+| fileName | String | 文件名（仅当 exists 为 true 时返回） |
+| size | Number | 文件大小，单位：字节（仅当 exists 为 true 时返回） |
+| hash | String | 文件哈希值（仅当 exists 为 true 时返回） |
+
+---
+
+### 3. 验证分片（断点续传）
 
 检查文件的分片上传状态，用于实现断点续传功能。
 
@@ -166,7 +226,7 @@ axios.post('http://127.0.0.1:3000/verify', {
 
 ---
 
-### 3. 合并分片
+### 4. 合并分片
 
 将所有分片合并为完整文件。
 
@@ -223,7 +283,7 @@ axios.post('http://127.0.0.1:3000/merge', {
 
 ---
 
-### 4. 查询上传进度
+### 5. 查询上传进度
 
 查询指定文件的上传进度。
 
